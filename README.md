@@ -47,3 +47,4 @@ Luego visita `http://localhost:3000`.
 - 3 vidas con invencibilidad temporal al reaparecer (parpadeo)
 - Asteroides se parten en fragmentos más pequeños al ser destruidos
 - Partículas de explosión al destruir asteroides
+- Power-up de disparo triple: aparece al impactar asteroides, al menos una vez por nivel. Durante 10 segundos la nave se vuelve azul y dispara 3 balas en abanico
