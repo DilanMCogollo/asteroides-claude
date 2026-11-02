@@ -120,18 +120,28 @@ class Asteroid {
   }
 }
 
-// ── Power-up (disparo triple) ─────────────────────────────────────────────────
+// ── Power-ups (disparo triple y ángel de la guardia) ──────────────────────────
 const TRIPLE_SHOT_DURATION = 10;    // segundos de efecto
 const TRIPLE_SHOT_SPREAD   = 0.2;   // separación del abanico en radianes
 const POWERUP_TTL          = 8;     // segundos en pantalla sin recoger
 const POWERUP_EXTRA_CHANCE = 0.1;   // probabilidad por impacto tras la aparición garantizada
 const POWERUP_MSG_DURATION = 2;     // segundos que se muestra la frase al recoger
 const SHIP_COLOR_TRIPLE    = '#4da6ff';
+const SHIELD_DURATION      = 5;     // segundos de efecto
+const SHIELD_RADIUS        = 28;    // cubre la nariz de la nave, a 20 px del centro
+const SHIELD_HIT_INVINCIBILITY = 1; // segundos para que los fragmentos no maten a la nave
+const SHIELD_COLOR         = '#ffe600';
+
+const POWERUP_INFO = {
+  triple: { color: SHIP_COLOR_TRIPLE, msg: '¡DISPARO TRIPLE!' },
+  shield: { color: SHIELD_COLOR,      msg: '¡ÁNGEL DE LA GUARDIA!' },
+};
 
 class PowerUp {
   constructor(x, y) {
     this.x = x;
     this.y = y;
+    this.type = Math.random() < 0.5 ? 'triple' : 'shield';
     const angle = rand(0, Math.PI * 2);
     const speed = rand(15, 30);
     this.vx = Math.cos(angle) * speed;
@@ -154,18 +164,26 @@ class PowerUp {
 
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.strokeStyle = SHIP_COLOR_TRIPLE;
-    ctx.fillStyle   = SHIP_COLOR_TRIPLE;
+    const { color } = POWERUP_INFO[this.type];
+    ctx.strokeStyle = color;
+    ctx.fillStyle   = color;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Tres puntos en abanico
-    for (const [dx, dy] of [[-5, 3], [0, -4], [5, 3]]) {
+    if (this.type === 'shield') {
+      // Círculo interior a modo de aureola
       ctx.beginPath();
-      ctx.arc(dx, dy, 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // Tres puntos en abanico
+      for (const [dx, dy] of [[-5, 3], [0, -4], [5, 3]]) {
+        ctx.beginPath();
+        ctx.arc(dx, dy, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
@@ -174,8 +192,9 @@ class PowerUp {
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() {
-    // Fuera de reset(): nextLevel() llama a reset() y el efecto debe conservarse
+    // Fuera de reset(): nextLevel() llama a reset() y los efectos deben conservarse
     this.tripleShot = 0;
+    this.shield     = 0;
     this.reset();
   }
 
@@ -197,6 +216,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.tripleShot    > 0) this.tripleShot    -= dt;
+    if (this.shield        > 0) this.shield        -= dt;
 
     const ROT  = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -233,8 +253,24 @@ class Ship {
     return [new Bullet(ox, oy, this.angle)];
   }
 
+  drawShield() {
+    if (this.shield <= 0) return;
+    // Parpadeo en el último segundo para avisar que se acaba
+    if (this.shield < 1 && Math.floor(this.shield * 8) % 2 === 0) return;
+
+    ctx.save();
+    ctx.strokeStyle = SHIELD_COLOR;
+    ctx.lineWidth   = 2;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, SHIELD_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   draw() {
     if (this.dead) return;
+    // Antes del parpadeo de la nave, para que siga visible mientras parpadea
+    this.drawShield();
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
@@ -307,6 +343,7 @@ let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let hitsUntilPowerUp;   // impactos que faltan para la aparición garantizada del nivel
 let powerUpMsgTimer;
+let powerUpMsgType;     // clave de POWERUP_INFO del último power-up recogido
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -356,6 +393,15 @@ function maybeSpawnPowerUp(x, y) {
 
 function explode(x, y, count = 8) {
   for (let i = 0; i < count; i++) particles.push(new Particle(x, y));
+}
+
+// Devuelve los fragmentos: quien llama decide cuándo agregarlos a `asteroids`
+function destroyAsteroid(a) {
+  a.dead = true;
+  score += POINTS[a.size];
+  explode(a.x, a.y, a.size * 5);
+  maybeSpawnPowerUp(a.x, a.y);
+  return a.split();
 }
 
 function killShip() {
@@ -414,11 +460,7 @@ function update(dt) {
     for (const a of asteroids) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
-        a.dead = true;
-        score += POINTS[a.size];
-        explode(a.x, a.y, a.size * 5);
-        maybeSpawnPowerUp(a.x, a.y);
-        newAsteroids.push(...a.split());
+        newAsteroids.push(...destroyAsteroid(a));
       }
     }
   }
@@ -429,7 +471,9 @@ function update(dt) {
   for (const p of powerUps) {
     if (dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
-      ship.tripleShot = TRIPLE_SHOT_DURATION;
+      if (p.type === 'shield') ship.shield = SHIELD_DURATION;
+      else ship.tripleShot = TRIPLE_SHOT_DURATION;
+      powerUpMsgType  = p.type;
       powerUpMsgTimer = POWERUP_MSG_DURATION;
     }
   }
@@ -437,9 +481,18 @@ function update(dt) {
 
   // Nave vs asteroide
   if (ship.invincible <= 0) {
+    const hasShield = ship.shield > 0;
+    const hitRadius = hasShield ? SHIELD_RADIUS : ship.radius;
     for (const a of asteroids) {
-      if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+      if (dist(ship, a) < hitRadius + a.radius * 0.82) {
+        if (hasShield) {
+          ship.shield     = 0;
+          ship.invincible = SHIELD_HIT_INVINCIBILITY;
+          const fragments = destroyAsteroid(a);
+          asteroids = asteroids.filter(x => !x.dead).concat(fragments);
+        } else {
+          killShip();
+        }
         break;
       }
     }
@@ -484,12 +537,13 @@ function drawHUD() {
 
 function drawPowerUpMsg() {
   if (powerUpMsgTimer <= 0) return;
+  const { color, msg } = POWERUP_INFO[powerUpMsgType];
   ctx.save();
   ctx.globalAlpha = Math.min(powerUpMsgTimer / 0.5, 1);  // se desvanece en el último medio segundo
   ctx.textAlign   = 'center';
-  ctx.fillStyle   = SHIP_COLOR_TRIPLE;
+  ctx.fillStyle   = color;
   ctx.font        = 'bold 22px monospace';
-  ctx.fillText('¡DISPARO TRIPLE!', W / 2, 70);
+  ctx.fillText(msg, W / 2, 70);
   ctx.restore();
 }
 
