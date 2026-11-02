@@ -122,7 +122,7 @@ class Asteroid {
   }
 }
 
-// ── Power-ups (disparo triple, ángel de la guardia y cámara lenta) ────────────
+// ── Power-ups (disparo triple, ángel de la guardia, cámara lenta y bomba) ─────
 const TRIPLE_SHOT_DURATION = 10;    // segundos de efecto
 const TRIPLE_SHOT_SPREAD   = 0.2;   // separación del abanico en radianes
 const POWERUP_TTL          = 8;     // segundos en pantalla sin recoger
@@ -136,19 +136,27 @@ const SHIELD_COLOR         = '#ffe600';
 const SLOW_DURATION        = 6;     // segundos de efecto
 const SLOW_FACTOR          = 0.5;   // multiplicador de velocidad de los asteroides
 const SLOW_COLOR           = '#4dff88';
+const NUKE_CHANCE          = 0.1;   // probabilidad de que un power-up sea la bomba
+const NUKE_ANIM_DURATION   = 1.5;   // segundos de animación antes de pasar de nivel
+const NUKE_FLASH_DURATION  = 0.3;   // segundos del destello inicial
+const NUKE_COLOR           = '#ff5533';
 
 const POWERUP_INFO = {
   triple: { color: SHIP_COLOR_TRIPLE, msg: '¡DISPARO TRIPLE!' },
   shield: { color: SHIELD_COLOR,      msg: '¡ÁNGEL DE LA GUARDIA!' },
   slow:   { color: SLOW_COLOR,        msg: '¡CÁMARA LENTA!' },
+  nuke:   { color: NUKE_COLOR,        msg: '¡BOMBA NUCLEAR! PULSA N' },
 };
-const POWERUP_TYPES = Object.keys(POWERUP_INFO);
+// La bomba queda fuera del sorteo uniforme porque tiene su propia probabilidad
+const POWERUP_TYPES = Object.keys(POWERUP_INFO).filter(t => t !== 'nuke');
 
 class PowerUp {
   constructor(x, y) {
     this.x = x;
     this.y = y;
-    this.type = POWERUP_TYPES[randInt(0, POWERUP_TYPES.length - 1)];
+    this.type = !ship.hasNuke && Math.random() < NUKE_CHANCE
+      ? 'nuke'
+      : POWERUP_TYPES[randInt(0, POWERUP_TYPES.length - 1)];
     const angle = rand(0, Math.PI * 2);
     const speed = rand(15, 30);
     this.vx = Math.cos(angle) * speed;
@@ -191,6 +199,16 @@ class PowerUp {
       ctx.lineTo(0, 0);
       ctx.lineTo(5, 3);
       ctx.stroke();
+    } else if (this.type === 'nuke') {
+      // Símbolo de radiación: tres sectores
+      for (let i = 0; i < 3; i++) {
+        const mid = -Math.PI / 2 + i * (Math.PI * 2 / 3);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, 8, mid - Math.PI / 6, mid + Math.PI / 6);
+        ctx.closePath();
+        ctx.fill();
+      }
     } else {
       // Tres puntos en abanico
       for (const [dx, dy] of [[-5, 3], [0, -4], [5, 3]]) {
@@ -210,6 +228,7 @@ class Ship {
     this.tripleShot = 0;
     this.shield     = 0;
     this.slow       = 0;
+    this.hasNuke    = false;
     this.reset();
   }
 
@@ -360,6 +379,7 @@ let deadTimer;
 let hitsUntilPowerUp;   // impactos que faltan para la aparición garantizada del nivel
 let powerUpMsgTimer;
 let powerUpMsgType;     // clave de POWERUP_INFO del último power-up recogido
+let nukeAnimTimer;      // segundos que le quedan a la animación de la bomba
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -385,6 +405,7 @@ function initGame() {
   state  = 'playing';
   hitsUntilPowerUp = randInt(1, 3);
   powerUpMsgTimer  = 0;
+  nukeAnimTimer    = 0;
   spawnAsteroids(4);
 }
 
@@ -420,6 +441,17 @@ function destroyAsteroid(a) {
   return a.split();
 }
 
+// No usa destroyAsteroid(): esta destrucción no deja fragmentos ni genera power-ups
+function detonateNuke() {
+  for (const a of asteroids) {
+    score += POINTS[a.size];
+    explode(a.x, a.y, a.size * 5);
+  }
+  asteroids = [];
+  ship.hasNuke  = false;
+  nukeAnimTimer = NUKE_ANIM_DURATION;
+}
+
 function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
@@ -437,6 +469,9 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  // Se lee en todos los estados: una pulsación estando muerto no debe detonar al reaparecer
+  const nukePressed = pressed('KeyN');
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -460,6 +495,8 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
+  if (nukePressed && ship.hasNuke) detonateNuke();
+
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   // Se escala dt y no la velocidad: cubre fragmentos nuevos y no hay nada que restaurar
@@ -468,6 +505,7 @@ function update(dt) {
   particles.forEach(p => p.update(dt));
   powerUps.forEach(p => p.update(dt));
   if (powerUpMsgTimer > 0) powerUpMsgTimer -= dt;
+  if (nukeAnimTimer   > 0) nukeAnimTimer   -= dt;
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
@@ -492,6 +530,7 @@ function update(dt) {
       p.dead = true;
       if (p.type === 'shield') ship.shield = SHIELD_DURATION;
       else if (p.type === 'slow') ship.slow = SLOW_DURATION;
+      else if (p.type === 'nuke') ship.hasNuke = true;
       else ship.tripleShot = TRIPLE_SHOT_DURATION;
       powerUpMsgType  = p.type;
       powerUpMsgTimer = POWERUP_MSG_DURATION;
@@ -518,8 +557,8 @@ function update(dt) {
     }
   }
 
-  // Nivel completado
-  if (asteroids.length === 0) nextLevel();
+  // Nivel completado; espera a la bomba porque nextLevel() borra las partículas
+  if (asteroids.length === 0 && nukeAnimTimer <= 0) nextLevel();
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
@@ -553,6 +592,11 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
+  if (ship.hasNuke) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = NUKE_COLOR;
+    ctx.fillText('BOMBA [N]', 14, 46);
+  }
 }
 
 function drawPowerUpMsg() {
@@ -564,6 +608,31 @@ function drawPowerUpMsg() {
   ctx.fillStyle   = color;
   ctx.font        = 'bold 22px monospace';
   ctx.fillText(msg, W / 2, 70);
+  ctx.restore();
+}
+
+function drawNukeAnim() {
+  if (nukeAnimTimer <= 0) return;
+  const elapsed = NUKE_ANIM_DURATION - nukeAnimTimer;
+
+  ctx.save();
+  // Destello blanco inicial
+  if (elapsed < NUKE_FLASH_DURATION) {
+    ctx.globalAlpha = 1 - elapsed / NUKE_FLASH_DURATION;
+    ctx.fillStyle   = '#fff';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // El texto crece durante toda la animación y se desvanece en el último medio segundo
+  ctx.globalAlpha  = Math.min(nukeAnimTimer / 0.5, 1);
+  ctx.translate(W / 2, H / 2);
+  const scale = 0.6 + 0.8 * (elapsed / NUKE_ANIM_DURATION);
+  ctx.scale(scale, scale);
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = NUKE_COLOR;
+  ctx.font         = 'bold 60px monospace';
+  ctx.fillText('¡NUCLEAR!', 0, 0);
   ctx.restore();
 }
 
@@ -589,6 +658,7 @@ function draw() {
 
   drawHUD();
   drawPowerUpMsg();
+  drawNukeAnim();
 
   if (state === 'gameover')
     drawOverlay('GAME OVER', `PUNTAJE: ${score}   —   ESPACIO PARA REINICIAR`);

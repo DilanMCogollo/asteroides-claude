@@ -19,7 +19,7 @@ Then visit `http://localhost:3000`.
 ## Architecture
 
 - **Game loop:** `loop()` calls `update(dt)` then `draw()` on each `requestAnimationFrame`. `dt` is in seconds and capped at 0.05.
-- **Global state:** `ship`, `bullets`, `asteroids`, `particles`, `powerUps`, `score`, `lives`, `level`, `state`, `deadTimer`, `hitsUntilPowerUp`, `powerUpMsgTimer` and `powerUpMsgType` are module-level variables. Classes draw through the global `ctx` and read input from the global `keys`.
+- **Global state:** `ship`, `bullets`, `asteroids`, `particles`, `powerUps`, `score`, `lives`, `level`, `state`, `deadTimer`, `hitsUntilPowerUp`, `powerUpMsgTimer`, `powerUpMsgType` and `nukeAnimTimer` are module-level variables. Classes draw through the global `ctx` and read input from the global `keys`.
 - **State machine:** `state` is `'playing'`, `'dead'` or `'gameover'`. `update()` has a separate early-return branch for each non-playing state, and each branch updates only some entities. `draw()` always draws every entity, so anything a branch skips stays on screen frozen.
 - **Entity lifecycle:** entities set `dead = true`, and `update()` removes them with `filter`. Asteroid fragments collect in `newAsteroids` and are merged after the collision loop.
 - **Asteroid sizes:** `size` is 1 (small) to 3 (large) and indexes the `RADII`, `SPEEDS` and `POINTS` arrays, whose index 0 is unused.
