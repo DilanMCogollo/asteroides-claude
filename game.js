@@ -107,7 +107,9 @@ class Asteroid {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
-    ctx.strokeStyle = '#fff';
+    // Verde con cámara lenta; en el último segundo alterna con blanco para avisar que se acaba
+    const slowed = ship.slow > 0 && (ship.slow >= 1 || Math.floor(ship.slow * 8) % 2 !== 0);
+    ctx.strokeStyle = slowed ? SLOW_COLOR : '#fff';
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
     ctx.beginPath();
@@ -120,7 +122,7 @@ class Asteroid {
   }
 }
 
-// ── Power-ups (disparo triple y ángel de la guardia) ──────────────────────────
+// ── Power-ups (disparo triple, ángel de la guardia y cámara lenta) ────────────
 const TRIPLE_SHOT_DURATION = 10;    // segundos de efecto
 const TRIPLE_SHOT_SPREAD   = 0.2;   // separación del abanico en radianes
 const POWERUP_TTL          = 8;     // segundos en pantalla sin recoger
@@ -131,17 +133,22 @@ const SHIELD_DURATION      = 5;     // segundos de efecto
 const SHIELD_RADIUS        = 28;    // cubre la nariz de la nave, a 20 px del centro
 const SHIELD_HIT_INVINCIBILITY = 1; // segundos para que los fragmentos no maten a la nave
 const SHIELD_COLOR         = '#ffe600';
+const SLOW_DURATION        = 6;     // segundos de efecto
+const SLOW_FACTOR          = 0.5;   // multiplicador de velocidad de los asteroides
+const SLOW_COLOR           = '#4dff88';
 
 const POWERUP_INFO = {
   triple: { color: SHIP_COLOR_TRIPLE, msg: '¡DISPARO TRIPLE!' },
   shield: { color: SHIELD_COLOR,      msg: '¡ÁNGEL DE LA GUARDIA!' },
+  slow:   { color: SLOW_COLOR,        msg: '¡CÁMARA LENTA!' },
 };
+const POWERUP_TYPES = Object.keys(POWERUP_INFO);
 
 class PowerUp {
   constructor(x, y) {
     this.x = x;
     this.y = y;
-    this.type = Math.random() < 0.5 ? 'triple' : 'shield';
+    this.type = POWERUP_TYPES[randInt(0, POWERUP_TYPES.length - 1)];
     const angle = rand(0, Math.PI * 2);
     const speed = rand(15, 30);
     this.vx = Math.cos(angle) * speed;
@@ -177,6 +184,13 @@ class PowerUp {
       ctx.beginPath();
       ctx.arc(0, 0, 6, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (this.type === 'slow') {
+      // Manecillas de reloj
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(0, 0);
+      ctx.lineTo(5, 3);
+      ctx.stroke();
     } else {
       // Tres puntos en abanico
       for (const [dx, dy] of [[-5, 3], [0, -4], [5, 3]]) {
@@ -195,6 +209,7 @@ class Ship {
     // Fuera de reset(): nextLevel() llama a reset() y los efectos deben conservarse
     this.tripleShot = 0;
     this.shield     = 0;
+    this.slow       = 0;
     this.reset();
   }
 
@@ -217,6 +232,7 @@ class Ship {
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.tripleShot    > 0) this.tripleShot    -= dt;
     if (this.shield        > 0) this.shield        -= dt;
+    if (this.slow          > 0) this.slow          -= dt;
 
     const ROT  = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -408,6 +424,7 @@ function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
   ship.tripleShot = 0;
+  ship.slow       = 0;
   powerUpMsgTimer = 0;
   lives--;
   if (lives <= 0) {
@@ -445,7 +462,9 @@ function update(dt) {
 
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
-  asteroids.forEach(a => a.update(dt));
+  // Se escala dt y no la velocidad: cubre fragmentos nuevos y no hay nada que restaurar
+  const asteroidDt = ship.slow > 0 ? dt * SLOW_FACTOR : dt;
+  asteroids.forEach(a => a.update(asteroidDt));
   particles.forEach(p => p.update(dt));
   powerUps.forEach(p => p.update(dt));
   if (powerUpMsgTimer > 0) powerUpMsgTimer -= dt;
@@ -472,6 +491,7 @@ function update(dt) {
     if (dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
       if (p.type === 'shield') ship.shield = SHIELD_DURATION;
+      else if (p.type === 'slow') ship.slow = SLOW_DURATION;
       else ship.tripleShot = TRIPLE_SHOT_DURATION;
       powerUpMsgType  = p.type;
       powerUpMsgTimer = POWERUP_MSG_DURATION;

@@ -49,3 +49,4 @@ Luego visita `http://localhost:3000`.
 - Partículas de explosión al destruir asteroides
 - Power-up de disparo triple: aparece al impactar asteroides, al menos una vez por nivel. Durante 10 segundos la nave se vuelve azul y dispara 3 balas en abanico
 - Power-up "Ángel de la guardia": un círculo de energía amarillo rodea la nave durante 5 segundos o hasta absorber el impacto de un asteroide, que se destruye como si le hubieran disparado
+- Power-up "Cámara lenta": durante 6 segundos los asteroides se vuelven verdes y se mueven a la mitad de velocidad, mientras la nave mantiene su velocidad normal. Se cancela al perder una vida
