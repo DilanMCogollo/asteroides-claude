@@ -122,7 +122,7 @@ class Asteroid {
   }
 }
 
-// ── Power-ups (disparo triple, ángel de la guardia, cámara lenta y bomba) ─────
+// ── Power-ups (disparo triple, ángel de la guardia, cámara lenta, boost y bomba)
 const TRIPLE_SHOT_DURATION = 10;    // segundos de efecto
 const TRIPLE_SHOT_SPREAD   = 0.2;   // separación del abanico en radianes
 const POWERUP_TTL          = 8;     // segundos en pantalla sin recoger
@@ -136,7 +136,11 @@ const SHIELD_COLOR         = '#ffe600';
 const SLOW_DURATION        = 6;     // segundos de efecto
 const SLOW_FACTOR          = 0.5;   // multiplicador de velocidad de los asteroides
 const SLOW_COLOR           = '#4dff88';
-const NUKE_CHANCE          = 0.1;   // probabilidad de que un power-up sea la bomba
+const BOOST_DURATION       = 8;     // segundos de efecto
+const BOOST_THRUST_FACTOR  = 4;     // multiplicador de la aceleración
+const BOOST_DRAG           = 0.975; // más freno que lo normal: duplica la velocidad máxima y derrapa la mitad
+const BOOST_COLOR          = '#ff1a1a';
+const NUKE_CHANCE         = 0.1;   // probabilidad de que un power-up sea la bomba
 const NUKE_ANIM_DURATION   = 1.5;   // segundos de animación antes de pasar de nivel
 const NUKE_FLASH_DURATION  = 0.3;   // segundos del destello inicial
 const NUKE_COLOR           = '#ff5533';
@@ -145,6 +149,7 @@ const POWERUP_INFO = {
   triple: { color: SHIP_COLOR_TRIPLE, msg: '¡DISPARO TRIPLE!' },
   shield: { color: SHIELD_COLOR,      msg: '¡ÁNGEL DE LA GUARDIA!' },
   slow:   { color: SLOW_COLOR,        msg: '¡CÁMARA LENTA!' },
+  boost:  { color: BOOST_COLOR,       msg: '¡GOTTA GO FAST!' },
   nuke:   { color: NUKE_COLOR,        msg: '¡BOMBA NUCLEAR! PULSA N' },
 };
 // La bomba queda fuera del sorteo uniforme porque tiene su propia probabilidad
@@ -199,6 +204,14 @@ class PowerUp {
       ctx.lineTo(0, 0);
       ctx.lineTo(5, 3);
       ctx.stroke();
+    } else if (this.type === 'boost') {
+      // Rayo en zigzag
+      ctx.beginPath();
+      ctx.moveTo(3, -8);
+      ctx.lineTo(-4, 1);
+      ctx.lineTo(1, 1);
+      ctx.lineTo(-3, 8);
+      ctx.stroke();
     } else if (this.type === 'nuke') {
       // Símbolo de radiación: tres sectores
       for (let i = 0; i < 3; i++) {
@@ -228,8 +241,14 @@ class Ship {
     this.tripleShot = 0;
     this.shield     = 0;
     this.slow       = 0;
+    this.boost      = 0;
     this.hasNuke    = false;
     this.reset();
+  }
+
+  // En el último segundo alterna para avisar que se acaba
+  get boostVisible() {
+    return this.boost > 0 && (this.boost >= 1 || Math.floor(this.boost * 8) % 2 !== 0);
   }
 
   reset() {
@@ -252,10 +271,12 @@ class Ship {
     if (this.tripleShot    > 0) this.tripleShot    -= dt;
     if (this.shield        > 0) this.shield        -= dt;
     if (this.slow          > 0) this.slow          -= dt;
+    if (this.boost         > 0) this.boost         -= dt;
 
+    const boosted = this.boost > 0;
     const ROT  = 3.5;   // rad/s
-    const THRUST = 260;  // px/s²
-    const DRAG   = 0.987;
+    const THRUST = boosted ? 260 * BOOST_THRUST_FACTOR : 260;  // px/s²
+    const DRAG   = boosted ? BOOST_DRAG : 0.987;
 
     if (keys['ArrowLeft'])  this.angle -= ROT * dt;
     if (keys['ArrowRight']) this.angle += ROT * dt;
@@ -302,17 +323,54 @@ class Ship {
     ctx.restore();
   }
 
+  drawBolts() {
+    if (!this.boostVisible) return;
+
+    // Se regeneran en cada frame, así que parpadean solos como la llama del propulsor
+    const bolts = [];
+    for (let i = 0; i < 3; i++) {
+      const start = rand(0, Math.PI * 2);
+      const segments = randInt(5, 6);
+      const points = [];
+      for (let j = 0; j <= segments; j++) {
+        const a = start + j * 0.25;
+        const r = rand(22, 32);   // la nariz está a 20 px del centro
+        points.push([this.x + Math.cos(a) * r, this.y + Math.sin(a) * r]);
+      }
+      bolts.push(points);
+    }
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    // Rojo grueso y blanco fino encima, para dar efecto de brillo
+    for (const [color, width] of [[BOOST_COLOR, 3], ['#fff', 1]]) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = width;
+      for (const points of bolts) {
+        ctx.beginPath();
+        ctx.moveTo(points[0][0], points[0][1]);
+        for (let i = 1; i < points.length; i++)
+          ctx.lineTo(points[i][0], points[i][1]);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   draw() {
     if (this.dead) return;
-    // Antes del parpadeo de la nave, para que siga visible mientras parpadea
+    // Antes del parpadeo de la nave, para que sigan visibles mientras parpadea
     this.drawShield();
+    this.drawBolts();
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = this.tripleShot > 0 ? SHIP_COLOR_TRIPLE : '#fff';
+    ctx.strokeStyle = this.boostVisible ? BOOST_COLOR
+      : this.tripleShot > 0 ? SHIP_COLOR_TRIPLE
+      : '#fff';
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -457,6 +515,7 @@ function killShip() {
   ship.dead = true;
   ship.tripleShot = 0;
   ship.slow       = 0;
+  ship.boost      = 0;
   powerUpMsgTimer = 0;
   lives--;
   if (lives <= 0) {
@@ -530,6 +589,7 @@ function update(dt) {
       p.dead = true;
       if (p.type === 'shield') ship.shield = SHIELD_DURATION;
       else if (p.type === 'slow') ship.slow = SLOW_DURATION;
+      else if (p.type === 'boost') ship.boost = BOOST_DURATION;
       else if (p.type === 'nuke') ship.hasNuke = true;
       else ship.tripleShot = TRIPLE_SHOT_DURATION;
       powerUpMsgType  = p.type;
